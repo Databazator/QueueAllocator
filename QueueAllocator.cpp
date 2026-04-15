@@ -13,7 +13,7 @@
 // the first free list element is returned and when a resource is returned, it is put at the end of the free resource list
 // similiarly, when a queue's data spans several DataSegements, they are linked as "next's" during the aquisition of a new segment
 // Allocated DataSegments are exclusive to a single Q, so data efficiency and availability could be affected in edge cases, 
-// but there are no adjustment done to the structure during enqueue or dequeue that would require number of operation dependant on the structure's sizes.
+// but there are no adjustments done to the structure during enqueue or dequeue that would require number of operation dependant on the structure's sizes.
 // So both of these ops have constant complexity.
 
 
@@ -366,17 +366,29 @@ void PutSegmentInFreeList(const unsigned char id)
 	// set newly added segment as tail
 	SetFreeSegTail(id);
 }
-// free all segments belonging to a give Q
+// free all segments belonging to a given Q
 void FreeQSegments(Q* q)
 {
-	unsigned char currId = q->frontSegmentId;
-	unsigned char nextId;
-	// traverse the segment linked list and free them
-	while (currId < SEGMENT_COUNT)
-	{		
-		nextId = GetSegmentById(currId)->nextSegmentId;
-		PutSegmentInFreeList(currId);
-		currId = nextId;
+	unsigned char frontId = q->frontSegmentId;
+	// no segment is allocated for this q, just return
+	if (frontId >= SEGMENT_COUNT) return;
+
+	unsigned char backId = q->backSegmentId;
+
+	// set current free tail's next id to frontId if there is one	
+	unsigned char freeTailId = GetFreeSegTail();
+	if (freeTailId < SEGMENT_COUNT)
+	{
+		DataSegment* freeTailSeg = GetSegmentById(freeTailId);
+		freeTailSeg->nextSegmentId = frontId;
+		// and set the free segment tail to the backId
+		// the segments belonging to q are already chained and the last one points to invalid id
+		SetFreeSegTail(backId);
+	}
+	else // free segment list is empty, set q's segments as the free list
+	{
+		SetFreeSegHead(frontId);
+		SetFreeSegTail(backId);
 	}
 }
 
