@@ -6,6 +6,17 @@
 #include <new>
 #include <array>
 
+// Queue Allocator : This "allocator" splits the data array into two chunks:
+//		1. Header containing structs for Queue handles and Free lists for tracking resources that can be allocated. ~Funnily enough, the 'Header' lives at the end of the array, so it should be called a 'Tailer'?~
+//		2. A Data Block that is divided into small DataSegements, each containg raw byte data and an index(pointer) of the next (connected or free) Segment .
+// The Free resources and allocated DataSegments are in the form of linked lists. When a resource is needed, 
+// the first free list element is returned and when a resource is returned, it is put at the end of the free resource list
+// similiarly, when a queue's data spans several DataSegements, they are linked as "next's" during the aquisition of a new segment
+// Allocated DataSegments are exclusive to a single Q, so data efficiency and availability could be affected in edge cases, 
+// but there are no adjustment done to the structure during enqueue or dequeue that would require number of operation dependant on the structure's sizes.
+// So both of these ops have constant complexity.
+
+
 using SegmentIndex = unsigned char;
 
 constexpr size_t DATA_SIZE = 2048;
@@ -73,9 +84,9 @@ constexpr auto SEGMENT_OFFSETS = [] {
 unsigned char data[2048];
 
 // -------------------------------------------------------------------------------
-// helper functions
+// helper functions - getters and setters of values and structs from the data array
 
-unsigned char GetCharAtOffset(size_t offset)
+const unsigned char GetCharAtOffset(size_t offset)
 {
 	if (offset >= DATA_SIZE) throw "GetCharAtOffset: Offset out of range";
 	return data[offset];
@@ -101,7 +112,7 @@ DataSegment* GetSegmentById(size_t index)
 	return reinterpret_cast<DataSegment*>(&data[offset]);
 }
 
-unsigned char GetFreeQHead()
+const unsigned char GetFreeQHead()
 {
 	return GetCharAtOffset(FREE_Q_LIST_HEAD_OFFSET);
 }
@@ -111,7 +122,7 @@ void SetFreeQHead(unsigned char id)
 	SetCharAtOffset(FREE_Q_LIST_HEAD_OFFSET, id);
 }
 
-unsigned char GetFreeQTail()
+const unsigned char GetFreeQTail()
 {
 	return GetCharAtOffset(FREE_Q_LIST_TAIL_OFFSET);
 }
@@ -121,7 +132,7 @@ void SetFreeQTail(unsigned char id)
 	SetCharAtOffset(FREE_Q_LIST_TAIL_OFFSET, id);
 }
 
-unsigned char GetFreeSegHead()
+const unsigned char GetFreeSegHead()
 {
 	return GetCharAtOffset(FREE_SEGMENT_LIST_HEAD_OFFSET);
 }
@@ -131,7 +142,7 @@ void SetFreeSegHead(unsigned char id)
 	SetCharAtOffset(FREE_SEGMENT_LIST_HEAD_OFFSET, id);
 }
 
-unsigned char GetFreeSegTail()
+const unsigned char GetFreeSegTail()
 {
 	return GetCharAtOffset(FREE_SEGMENT_LIST_TAIL_OFFSET);
 }
@@ -141,7 +152,7 @@ void SetFreeSegTail(unsigned char id)
 	SetCharAtOffset(FREE_SEGMENT_LIST_TAIL_OFFSET, id);
 }
 
-size_t GetQIdFromPointer(Q* q)
+const size_t GetQIdFromPointer(Q* q)
 {
 	size_t offset = reinterpret_cast<unsigned char*>(q) - data;
 	size_t Q_struct_offset = offset - Q_STRUCTURE_START_OFFSET;
@@ -156,7 +167,7 @@ size_t GetQIdFromPointer(Q* q)
 
 // nextFreeQId is only used when q is in the free list, so one of it's indices can be used for storing the nextId
 // although it is a bit confusing...
-unsigned char GetNextFreeQId(Q* q)
+const unsigned char GetNextFreeQId(Q* q)
 {
 	return q->frontSegmentId;
 }
@@ -252,7 +263,7 @@ void TryInitialise()
 // -------------------------------------------------------------------------------------
 // Free list modification functions
 
-unsigned char GetFreeQ()
+const unsigned char GetFreeQ()
 {
 	unsigned char freeHead = GetFreeQHead();
 	// no more free queues
@@ -262,7 +273,7 @@ unsigned char GetFreeQ()
 	{
 		SetFreeQTail(Q_COUNT);
 	}
-
+	// set the next free q in list as new head
 	Q* q = GetQById(freeHead);
 	unsigned char nextFreeQ = GetNextFreeQId(q);
 
@@ -271,7 +282,7 @@ unsigned char GetFreeQ()
 	return freeHead;
 }
 
-void PutQInFreeList(unsigned char id)
+void PutQInFreeList(const unsigned char id)
 {
 	// illegal id supplied
 	if (id >= Q_COUNT) on_illegal_operation();
@@ -286,14 +297,14 @@ void PutQInFreeList(unsigned char id)
 		SetFreeQTail(id);
 		return;
 	}
-
+	// set current tail q's nextFreeId to the newly added q's id 
 	Q* tailQ = GetQById(tailQId);
 	SetNextFreeQId(tailQ, id);
 
 	SetFreeQTail(id);
 }
 
-unsigned char GetFreeSegment()
+const unsigned char GetFreeSegment()
 {
 	unsigned char freeHead = GetFreeSegHead();
 
@@ -304,7 +315,7 @@ unsigned char GetFreeSegment()
 	{
 		SetFreeSegTail(SEGMENT_COUNT);
 	}
-
+	// set the next free segment in list as new head
 	DataSegment* s = GetSegmentById(freeHead);
 	unsigned char nextFreeSeg = s->nextSegmentId;
 
@@ -313,7 +324,7 @@ unsigned char GetFreeSegment()
 	return freeHead;
 }
 
-void PutSegmentInFreeList(unsigned char id)
+void PutSegmentInFreeList(const unsigned char id)
 {
 	// illegal id supplied
 	if (id >= SEGMENT_COUNT) on_illegal_operation();
@@ -328,17 +339,18 @@ void PutSegmentInFreeList(unsigned char id)
 		SetFreeSegTail(id);
 		return;
 	}
-
+	// set current tail segment's nextId to the newly added segment's id
 	DataSegment* tailSeg = GetSegmentById(tailSegId);
 	tailSeg->nextSegmentId = id;
-
+	// set newly added segment as tail
 	SetFreeSegTail(id);
 }
-
+// free all segments belonging to a give Q
 void FreeQSegments(Q* q)
 {
 	unsigned char currId = q->frontSegmentId;
 	unsigned char nextId;
+	// traverse the segment linked list and free them
 	while (currId < SEGMENT_COUNT)
 	{		
 		nextId = GetSegmentById(currId)->nextSegmentId;
