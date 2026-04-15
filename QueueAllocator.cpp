@@ -6,12 +6,14 @@
 #include <new>
 #include <array>
 
+using SegmentIndex = unsigned char;
+
 constexpr size_t DATA_SIZE = 2048;
 constexpr size_t SEGMENT_DATA_SIZE = 20;
 
 struct DataSegment {
 	unsigned char data[SEGMENT_DATA_SIZE];
-	unsigned char nextSegmentId;
+	SegmentIndex nextSegmentId;
 };
 
 struct Q {
@@ -29,7 +31,7 @@ constexpr size_t Q_COUNT = 64;
 constexpr size_t Q_SIZE = sizeof(Q);
 
 constexpr size_t Q_STRUCTURE_SIZE = Q_COUNT * Q_SIZE;
-constexpr size_t SEGMENT_ID_SIZE = sizeof(unsigned char);
+constexpr size_t SEGMENT_ID_SIZE = sizeof(SegmentIndex);
 constexpr size_t Q_ID_SIZE = sizeof(unsigned char);
 constexpr size_t FREE_SEGMENT_LIST_SIZE = 2 * SEGMENT_ID_SIZE;
 constexpr size_t FREE_Q_LIST_SIZE = 2 * Q_ID_SIZE;
