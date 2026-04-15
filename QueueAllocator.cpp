@@ -20,8 +20,7 @@ struct Q {
 	unsigned char frontSegmentId;
 	unsigned char frontSegmentOffset;
 	unsigned char backSegmentId;
-	unsigned char backSegmentOffset;
-	unsigned char nextFreeQId;
+	unsigned char backSegmentOffset;	
 };
 
 // precomputed offsets and sizes of the data's structures
@@ -49,7 +48,8 @@ constexpr size_t STRUCTURE_INITIALISED_INDIC_OFFSET = DATA_SIZE - sizeof(unsigne
 const unsigned char STRUCTURE_INITIALISED = 192; //random flag that marks the array's structures as initialised
 
 constexpr size_t UNUSED_SPACE = DATA_SIZE - (FREE_LISTS_SIZE + Q_STRUCTURE_SIZE + SEGMENT_COUNT * SEGMENT_SIZE);
-constexpr float DATA_USED_PERCENT = ((SEGMENT_COUNT * SEGMENT_DATA_SIZE) * 100.0F / DATA_SIZE);
+constexpr size_t USED_SPACE = SEGMENT_COUNT * SEGMENT_DATA_SIZE;
+constexpr float DATA_USED_PERCENT = (USED_SPACE * 100.0F / DATA_SIZE);
 
 // precalcualted offsets for q and segment structs
 constexpr auto Q_OFFSETS = [] {
@@ -154,6 +154,18 @@ size_t GetQIdFromPointer(Q* q)
 	return Q_struct_offset / Q_SIZE;
 }
 
+// nextFreeQId is only used when q is in the free list, so one of it's indices can be used for storing the nextId
+// although it is a bit confusing...
+unsigned char GetNextFreeQId(Q* q)
+{
+	return q->frontSegmentId;
+}
+
+void SetNextFreeQId(Q* q, unsigned char id)
+{
+	q->frontSegmentId = id;
+}
+
 // -------------------------------------------------------------------------------
 // Debug print utils
 void Print(Q* q)
@@ -162,7 +174,7 @@ void Print(Q* q)
 		<< (int)q->frontSegmentOffset << " TAIL: id:"
 		<< (int)q->backSegmentId << ", offset:"
 		<< (int)q->backSegmentOffset << " NextFreeQId:"
-		<< (int)q->nextFreeQId << std::endl;
+		<< (int)GetNextFreeQId(q) << std::endl;
 }
 void Print(DataSegment* d)
 {
@@ -218,7 +230,7 @@ void InitialiseStructure()
 	nextId = 1;
 	for (const size_t& offset : Q_OFFSETS)
 	{
-		new (&data[offset]) Q{ SEGMENT_COUNT, 0, SEGMENT_COUNT, 0, nextId++ };
+		new (&data[offset]) Q{ nextId++, 0, SEGMENT_COUNT, 0 };
 	}
 	// init free lists indices
 	SetFreeQHead(0);
@@ -237,6 +249,9 @@ void TryInitialise()
 	}
 }
 
+// -------------------------------------------------------------------------------------
+// Free list modification functions
+
 unsigned char GetFreeQ()
 {
 	unsigned char freeHead = GetFreeQHead();
@@ -249,7 +264,7 @@ unsigned char GetFreeQ()
 	}
 
 	Q* q = GetQById(freeHead);
-	unsigned char nextFreeQ = q->nextFreeQId;
+	unsigned char nextFreeQ = GetNextFreeQId(q);
 
 	SetFreeQHead(nextFreeQ);
 
@@ -262,7 +277,7 @@ void PutQInFreeList(unsigned char id)
 	if (id >= Q_COUNT) on_illegal_operation();
 
 	// set next Q to invalid
-	GetQById(id)->nextFreeQId = Q_COUNT;
+	SetNextFreeQId(GetQById(id), Q_COUNT);
 
 	unsigned char tailQId = GetFreeQTail();
 	if (tailQId >= Q_COUNT) // free list is empty
@@ -273,7 +288,7 @@ void PutQInFreeList(unsigned char id)
 	}
 
 	Q* tailQ = GetQById(tailQId);
-	tailQ->nextFreeQId = id;
+	SetNextFreeQId(tailQ, id);
 
 	SetFreeQTail(id);
 }
