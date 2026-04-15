@@ -4,9 +4,13 @@
 #include <cassert> 
 #include <string>
 
+const char* OOM_MSG = "oom";
+const char* ILLEGAL_OP_MSG = "illegalOp";
+
 // fail functions implementation
-void on_out_of_memory() { std::cerr << "[FAIL] Out of memory triggered\n"; std::abort(); } 
-void on_illegal_operation() { std::cerr << "[FAIL] Illegal operation triggered\n"; std::abort(); }
+void on_out_of_memory() { throw std::runtime_error(OOM_MSG); }
+void on_illegal_operation() { throw std::runtime_error(ILLEGAL_OP_MSG); }
+
 
 void AssertEqual(unsigned char a, unsigned char b)
 { 
@@ -150,6 +154,76 @@ void TestManyQueuesLargeData()
 	std::cout << "TestManyQueuesLargeData passed" << std::endl;
 }
 
+void TestEmptyDequeue()
+{
+	Q* q = create_queue();
+
+	bool errCaught = false;
+
+	try {
+		dequeue_byte(q);
+	}
+	catch (const std::runtime_error& err)
+	{		
+		if (strcmp(err.what(), ILLEGAL_OP_MSG) == 0)				
+			errCaught = true;		
+	}
+
+	assert(errCaught);
+
+	destroy_queue(q);
+
+	std::cout << "TestEmptyDequeue passed" << std::endl;
+}
+
+void TestNullptrOp()
+{
+	Q* q = nullptr;
+
+	bool errCaught = false;
+
+	try {
+		dequeue_byte(q);
+	}
+	catch (const std::runtime_error& err)
+	{
+		if (strcmp(err.what(), ILLEGAL_OP_MSG) == 0)
+			errCaught = true;
+	}
+
+	assert(errCaught);
+
+	std::cout << "TestNullptrOp passed" << std::endl;
+
+}
+
+void TestOutOfMemory()
+{
+	Q* q = create_queue();
+
+	bool errCaught = false;
+
+	try {
+		for (int i = 0; i < 5000; i++)
+		{
+			enqueue_byte(q, i % 256);
+		}
+	}
+	catch (const std::runtime_error& err)
+	{
+		if (strcmp(err.what(), OOM_MSG) == 0)
+			errCaught = true;
+	}
+	
+
+	assert(errCaught);
+
+	destroy_queue(q);
+
+	std::cout << "TestOutOfMemory passed" << std::endl;
+
+}
+
 
 int main()
 {
@@ -158,8 +232,11 @@ int main()
 	TestLargeData();
 	TestInterleaved();
 	TestManyQueuesLargeData();
+	TestEmptyDequeue();
+	TestNullptrOp();
+	TestOutOfMemory();
 
-	std::cout << "===== All tests passed =====" << std::endl;
+	std::cout << std::endl << "===== All tests passed =====" << std::endl;
 	return 0;
 }
 
