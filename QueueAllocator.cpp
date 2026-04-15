@@ -6,7 +6,7 @@
 #include <new>
 #include <array>
 
-// Queue Allocator : This "allocator" splits the data array into two chunks:
+// Queue Allocator : The "allocator" structure splits the data array into two chunks:
 //		1. Header containing structs for Queue handles and Free lists for tracking resources that can be allocated. ~Funnily enough, the 'Header' lives at the end of the array, so it should be called a 'Tailer'?~
 //		2. A Data Block that is divided into small DataSegements, each containg raw byte data and an index(pointer) of the next (connected or free) Segment .
 // The Free resources and allocated DataSegments are in the form of linked lists. When a resource is needed, 
@@ -20,7 +20,10 @@
 using SegmentIndex = unsigned char;
 
 constexpr size_t DATA_SIZE = 2048;
-constexpr size_t SEGMENT_DATA_SIZE = 20;
+constexpr size_t SEGMENT_DATA_SIZE = 13;
+
+// due to the bit packing of offsets, 16 is the max size segment data can have
+static_assert(SEGMENT_DATA_SIZE <= 16);
 
 struct DataSegment {
 	unsigned char data[SEGMENT_DATA_SIZE];
@@ -29,9 +32,26 @@ struct DataSegment {
 
 struct Q {
 	unsigned char frontSegmentId;
-	unsigned char frontSegmentOffset;
 	unsigned char backSegmentId;
-	unsigned char backSegmentOffset;	
+	unsigned char packedSegmentOffsets;
+	
+	// packed offset setters and getters
+	unsigned char getFrontOffset()
+	{
+		return (packedSegmentOffsets >> 4) & 0x0F;
+	}
+	unsigned char getBackOffset()
+	{
+		return packedSegmentOffsets & 0x0F;
+	}
+	void setFrontOffset(unsigned char value)
+	{
+		packedSegmentOffsets = (packedSegmentOffsets & 0x0F) | ((value & 0x0F) << 4);
+	}
+	void setBackOffset(unsigned char value)
+	{
+		packedSegmentOffsets = (packedSegmentOffsets & 0xF0) | (value & 0x0F);
+	}	
 };
 
 // precomputed offsets and sizes of the data's structures
@@ -182,9 +202,9 @@ void SetNextFreeQId(Q* q, unsigned char id)
 void Print(Q* q)
 {
 	std::cout << "HEAD: id:" << (int)q->frontSegmentId << ", offset:"
-		<< (int)q->frontSegmentOffset << " TAIL: id:"
+		<< (int)q->getFrontOffset() << " TAIL: id:"
 		<< (int)q->backSegmentId << ", offset:"
-		<< (int)q->backSegmentOffset << " NextFreeQId:"
+		<< (int)q->getBackOffset() << " NextFreeQId:"
 		<< (int)GetNextFreeQId(q) << std::endl;
 }
 void Print(DataSegment* d)
@@ -241,7 +261,8 @@ void InitialiseStructure()
 	nextId = 1;
 	for (const size_t& offset : Q_OFFSETS)
 	{
-		new (&data[offset]) Q{ nextId++, 0, SEGMENT_COUNT, 0 };
+		//	   Q struct is : { frontId,  backId,  packedOffsets}
+		new (&data[offset]) Q{ nextId++, SEGMENT_COUNT, 0};
 	}
 	// init free lists indices
 	SetFreeQHead(0);
@@ -390,7 +411,7 @@ void enqueue_byte(Q* q, unsigned char byte)
 	if (q == nullptr) on_illegal_operation();
 
 	// Something has gone wrong
-	if (q->backSegmentOffset >= SEGMENT_DATA_SIZE) on_illegal_operation(); 
+	if (q->getBackOffset() >= SEGMENT_DATA_SIZE) on_illegal_operation();
 
 	// if Q is empty
 	if (q->backSegmentId >= SEGMENT_COUNT) 
@@ -400,11 +421,11 @@ void enqueue_byte(Q* q, unsigned char byte)
 		DataSegment* newSegment = GetSegmentById(newSegmentId);
 		// setup queue front and back
 		q->frontSegmentId = newSegmentId;
-		q->frontSegmentOffset = 0;
+		q->setFrontOffset(0);
 		q->backSegmentId = newSegmentId;
-		q->backSegmentOffset = 0;
+		q->setBackOffset(0);
 		//write data and return
-		newSegment->data[q->backSegmentOffset] = byte;
+		newSegment->data[q->getBackOffset()] = byte;
 		newSegment->nextSegmentId = SEGMENT_COUNT;
 		return;
 	}
@@ -412,7 +433,7 @@ void enqueue_byte(Q* q, unsigned char byte)
 	DataSegment* currentBackSegment = GetSegmentById(q->backSegmentId);
 
 	// back segment is full -> gonna need new segment
-	if (q->backSegmentOffset >= SEGMENT_DATA_SIZE - 1)
+	if (q->getBackOffset() >= SEGMENT_DATA_SIZE - 1)
 	{
 		// get new free segment
 		unsigned char newSegmentId = GetFreeSegment();
@@ -420,16 +441,16 @@ void enqueue_byte(Q* q, unsigned char byte)
 		// set q back segment and previous segment's nextSegmentId to new segment
 		currentBackSegment->nextSegmentId = newSegmentId;
 		q->backSegmentId = newSegmentId;
-		q->backSegmentOffset = 0;
+		q->setBackOffset(0);
 		// write data and return
-		newSegment->data[q->backSegmentOffset] = byte;
+		newSegment->data[q->getBackOffset()] = byte;
 		newSegment->nextSegmentId = SEGMENT_COUNT;
 		return;
 	}
 	else // there is space in current back segment, just write the data to it
 	{
-		q->backSegmentOffset++;
-		currentBackSegment->data[q->backSegmentOffset] = byte;
+		q->setBackOffset(q->getBackOffset() + 1);
+		currentBackSegment->data[q->getBackOffset()] = byte;
 		return;
 	}
 }
@@ -439,13 +460,13 @@ unsigned char dequeue_byte(Q* q)
 	// queue is empty -> illegal op
 	if (q->frontSegmentId >= SEGMENT_COUNT) on_illegal_operation();
 	// if q segment offset somehow got changed from outside to bad value
-	if (q->frontSegmentOffset >= SEGMENT_DATA_SIZE) on_illegal_operation();
+	if (q->getFrontOffset() >= SEGMENT_DATA_SIZE) on_illegal_operation();
 
 	DataSegment* frontSegment = GetSegmentById(q->frontSegmentId);
-	unsigned char element = frontSegment->data[q->frontSegmentOffset];
+	unsigned char element = frontSegment->data[q->getFrontOffset()];
 
 	// is last element in q -> free segment and set q to empty
-	if (q->frontSegmentId == q->backSegmentId && q->frontSegmentOffset == q->backSegmentOffset)
+	if (q->frontSegmentId == q->backSegmentId && q->getFrontOffset() == q->getBackOffset())
 	{		
 		PutSegmentInFreeList(q->frontSegmentId);
 		q->frontSegmentId = SEGMENT_COUNT;
@@ -453,19 +474,19 @@ unsigned char dequeue_byte(Q* q)
 		return element;
 	}
 	// popping last element in segment -> segment can be freed;
-	if (q->frontSegmentOffset == SEGMENT_DATA_SIZE - 1)
+	if (q->getFrontOffset() == SEGMENT_DATA_SIZE - 1)
 	{
 		// free front segment
 		unsigned char nextSegment = frontSegment->nextSegmentId;
 		PutSegmentInFreeList(q->frontSegmentId);
 		//set ids to next segment
 		q->frontSegmentId = nextSegment;
-		q->frontSegmentOffset = 0;
+		q->setFrontOffset(0);
 		return element;
 	}
 	else // more elements remain in segment, just pop front element
 	{
-		q->frontSegmentOffset++;
+		q->setFrontOffset(q->getFrontOffset() + 1);
 		return element;
 	}	
 }
