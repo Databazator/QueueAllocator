@@ -250,7 +250,7 @@ void PrintStructureContents()
 // Init structure
 
 void InitialiseStructure()
-{
+{	
 	// init data segments
 	unsigned char nextId = 1;
 	for (const size_t& offset : SEGMENT_OFFSETS)
@@ -399,6 +399,11 @@ Q* create_queue() {
 	TryInitialise(); // initilise structures if it isn't already
 
 	unsigned char newQId = GetFreeQ();
+
+	// guard against exceding the max queue count
+	if (newQId >= Q_COUNT) on_out_of_memory();
+
+	// initialise q indices and return the handle pointer
 	Q* q = GetQById(newQId);
 	q->frontSegmentId = SEGMENT_COUNT;
 	q->backSegmentId = SEGMENT_COUNT;

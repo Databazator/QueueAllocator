@@ -151,6 +151,11 @@ void TestManyQueuesLargeData()
 		}
 	}
 
+	for (auto q : queues)
+	{
+		destroy_queue(q);
+	}
+
 	std::cout << "TestManyQueuesLargeData passed" << std::endl;
 }
 
@@ -203,11 +208,14 @@ void TestOutOfMemory()
 
 	bool errCaught = false;
 
-	try {
-		for (int i = 0; i < 5000; i++)
-		{
-			enqueue_byte(q, i % 256);
-		}
+	//using all available memory
+	for (int i = 0; i < 1716; i++)
+	{
+		enqueue_byte(q, i % 256);
+	}
+	//next enqueue should trigger out of mem
+	try {		
+		enqueue_byte(q, 0);
 	}
 	catch (const std::runtime_error& err)
 	{
@@ -224,6 +232,56 @@ void TestOutOfMemory()
 
 }
 
+void TestQueueReallocation()
+{
+	std::vector<Q*> queues;
+
+	for (int i = 0; i < 64; i++)
+	{
+		queues.push_back(create_queue());
+	}
+	destroy_queue(queues[0]);
+	Q* q = create_queue();
+
+	destroy_queue(q);
+
+	for (auto q : queues)
+	{
+		destroy_queue(q);
+	}
+
+	std::cout << "TestQueueReallocation passed" << std::endl;
+}
+
+void TestQueueHandleOutOfMemory()
+{
+	std::vector<Q*> queues;
+	bool errCaught = false;
+
+	for (int i = 0; i < 64; i++)
+	{
+		queues.push_back(create_queue());
+	}
+
+	try {
+		create_queue();
+	}
+	catch (const std::runtime_error& err)
+	{
+		if (strcmp(err.what(), OOM_MSG) == 0)
+			errCaught = true;
+	}
+
+	assert(errCaught);
+
+	for (auto& q : queues)
+	{
+		destroy_queue(q);
+	}
+
+	std::cout << "QueueHandlesOutOfMemory passed" << std::endl;
+}
+
 
 int main()
 {
@@ -235,6 +293,8 @@ int main()
 	TestEmptyDequeue();
 	TestNullptrOp();
 	TestOutOfMemory();
+	TestQueueHandleOutOfMemory();
+	TestQueueReallocation();
 
 	std::cout << std::endl << "===== All tests passed =====" << std::endl;
 	return 0;

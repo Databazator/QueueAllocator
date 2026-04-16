@@ -11,6 +11,3 @@ Q* create_queue();
 void destroy_queue(Q* q);
 void enqueue_byte(Q* q, unsigned char byte);
 unsigned char dequeue_byte(Q* q);
-
-// debug printout func
-void PrintStructureContents();
